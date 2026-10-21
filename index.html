@@ -1,0 +1,1085 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plataforma Avanzada de Avalúos: Análisis Integral de Suelo y Mejoras</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" crossorigin=""/>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin=""></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; color: #334155; }
+        .chart-container { position: relative; width: 100%; max-width: 100%; margin: 0 auto; height: 25vh; max-height: 240px; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .tab-active { border-bottom: 4px solid #0f766e; color: #0f766e; font-weight: 800; background-color: white;}
+        .leaflet-popup-content-wrapper { border-radius: 0.5rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+        .leaflet-popup-content { font-family: 'Inter', sans-serif; margin: 12px; }
+
+        /* Animación de pulso para el indicador de sync */
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.85); }
+        }
+        .pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
+
+        /* Spinner */
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px; }
+
+        /* Toast notification */
+        #toast {
+            position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+            transform: translateY(80px); opacity: 0;
+            transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        #toast.show { transform: translateY(0); opacity: 1; }
+
+        /* Config panel deslizante */
+        #config-panel {
+            position: fixed; top: 0; right: -420px; width: 420px; height: 100vh;
+            z-index: 100; transition: right 0.3s ease;
+            box-shadow: -4px 0 30px rgba(0,0,0,0.2);
+        }
+        #config-panel.open { right: 0; }
+        #config-overlay { position: fixed; inset: 0; z-index: 99; background: rgba(0,0,0,0.4); display: none; }
+        #config-overlay.open { display: block; }
+    </style>
+</head>
+<body class="antialiased">
+
+    <!-- Toast Notification -->
+    <div id="toast" class="bg-slate-800 text-white text-xs font-bold px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 min-w-[220px]">
+        <span id="toast-icon">✅</span>
+        <span id="toast-msg">Guardado exitoso</span>
+    </div>
+
+    <!-- Config Overlay -->
+    <div id="config-overlay" onclick="closeConfig()"></div>
+
+    <!-- Panel de Configuración de Google Sheets -->
+    <div id="config-panel" class="bg-white flex flex-col">
+        <div class="bg-slate-900 px-6 py-5 flex justify-between items-center border-b-4 border-teal-500">
+            <div>
+                <h2 class="text-white font-black text-base">⚙️ Configuración Google Sheets</h2>
+                <p class="text-slate-400 text-xs mt-0.5">Conecta tu hoja de cálculo como base de datos</p>
+            </div>
+            <button onclick="closeConfig()" class="text-slate-400 hover:text-white text-2xl transition-colors">&times;</button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-6 space-y-6">
+
+            <!-- Instrucciones paso a paso -->
+            <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                <h3 class="text-amber-900 font-black text-xs uppercase tracking-wide mb-3">📋 Instrucciones de Configuración</h3>
+                <ol class="space-y-3 text-xs text-amber-800">
+                    <li class="flex gap-2">
+                        <span class="bg-amber-400 text-amber-900 font-black rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0 text-[10px]">1</span>
+                        <div>Crea una Google Sheet nueva. En la primera fila (fila 1) deja los encabezados exactamente como los genera la app automáticamente.</div>
+                    </li>
+                    <li class="flex gap-2">
+                        <span class="bg-amber-400 text-amber-900 font-black rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0 text-[10px]">2</span>
+                        <div>Ve a <strong>Extensiones → Apps Script</strong> y pega el script de la pestaña "Script" en el panel.</div>
+                    </li>
+                    <li class="flex gap-2">
+                        <span class="bg-amber-400 text-amber-900 font-black rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0 text-[10px]">3</span>
+                        <div>Haz clic en <strong>Implementar → Nueva implementación → Aplicación web</strong>. En "¿Quién tiene acceso?", selecciona <strong>Cualquier usuario</strong>. Copia la URL generada.</div>
+                    </li>
+                    <li class="flex gap-2">
+                        <span class="bg-amber-400 text-amber-900 font-black rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0 text-[10px]">4</span>
+                        <div>Pega la URL del Web App y el ID de tu hoja (el código largo de la URL de Google Sheets) en los campos de abajo.</div>
+                    </li>
+                </ol>
+            </div>
+
+            <!-- Script de Apps Script para copiar -->
+            <div>
+                <div class="flex justify-between items-center mb-2">
+                    <label class="text-xs font-black text-slate-700 uppercase tracking-wide">📜 Script de Google Apps Script</label>
+                    <button onclick="copyScript()" class="text-[10px] bg-teal-600 hover:bg-teal-700 text-white px-3 py-1 rounded font-bold transition-colors">Copiar Script</button>
+                </div>
+                <pre id="apps-script-code" class="bg-slate-900 text-green-300 text-[10px] p-3 rounded-lg overflow-x-auto leading-relaxed max-h-60 overflow-y-auto border border-slate-700 whitespace-pre-wrap">const SHEET_NAME = "Avaluos";
+
+function doGet(e) {
+  try {
+    const action = e.parameter.action;
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);
+    
+    if (action === "getAll") {
+      const data = sheet.getDataRange().getValues();
+      if (data.length <= 1) return jsonResponse({ records: [] });
+      const headers = data[0];
+      const records = data.slice(1).map(row => {
+        const obj = {};
+        headers.forEach((h, i) => obj[h] = row[i]);
+        return obj;
+      });
+      return jsonResponse({ records });
+    }
+  } catch(err) {
+    return jsonResponse({ error: err.message });
+  }
+}
+
+function doPost(e) {
+  try {
+    const payload = JSON.parse(e.postData.contents);
+    const action = payload.action;
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);
+    
+    const HEADERS = ["id","sector","soilClass","buildState","area","price","constructionValue","lat","lng","sourceUrl"];
+    
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow(HEADERS);
+    }
+    
+    if (action === "add") {
+      const row = payload.record;
+      sheet.appendRow(HEADERS.map(h => row[h] ?? ""));
+      return jsonResponse({ success: true });
+    }
+    
+    if (action === "update") {
+      const row = payload.record;
+      const data = sheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        if (String(data[i][0]) === String(row.id)) {
+          HEADERS.forEach((h, j) => sheet.getRange(i+1, j+1).setValue(row[h] ?? ""));
+          return jsonResponse({ success: true });
+        }
+      }
+      return jsonResponse({ error: "ID no encontrado" });
+    }
+    
+    if (action === "delete") {
+      const id = payload.id;
+      const data = sheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        if (String(data[i][0]) === String(id)) {
+          sheet.deleteRow(i+1);
+          return jsonResponse({ success: true });
+        }
+      }
+      return jsonResponse({ error: "ID no encontrado" });
+    }
+    
+    if (action === "seed") {
+      sheet.clearContents();
+      sheet.appendRow(HEADERS);
+      payload.records.forEach(row => {
+        sheet.appendRow(HEADERS.map(h => row[h] ?? ""));
+      });
+      return jsonResponse({ success: true, seeded: payload.records.length });
+    }
+    
+  } catch(err) {
+    return jsonResponse({ error: err.message });
+  }
+}
+
+function jsonResponse(data) {
+  return ContentService.createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
+}</pre>
+            </div>
+
+            <!-- Campos de configuración -->
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-black text-slate-700 mb-1.5 uppercase tracking-wide">🔗 URL del Web App (Apps Script)</label>
+                    <input type="url" id="config-webapp-url" placeholder="https://script.google.com/macros/s/AKfy.../exec"
+                        class="w-full rounded-lg border border-slate-300 p-2.5 text-xs focus:ring-2 focus:ring-teal-500 focus:border-teal-500 font-mono">
+                    <p class="text-[10px] text-slate-400 mt-1">La URL termina en <code>/exec</code></p>
+                </div>
+            </div>
+
+            <!-- Acciones -->
+            <div class="space-y-3 border-t border-slate-200 pt-4">
+                <button onclick="saveConfig()" class="w-full bg-teal-600 hover:bg-teal-700 text-white py-2.5 rounded-lg text-xs font-black transition-colors">
+                    💾 Guardar Configuración y Conectar
+                </button>
+                <button onclick="testConnection()" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 rounded-lg text-xs font-bold transition-colors border border-slate-200">
+                    🔍 Probar Conexión
+                </button>
+                <button onclick="seedDatabase()" class="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-2.5 rounded-lg text-xs font-bold transition-colors border border-indigo-200">
+                    🌱 Poblar Hoja con Datos de Ejemplo
+                </button>
+            </div>
+
+            <!-- Estado conexión -->
+            <div id="connection-status" class="hidden">
+                <!-- populated by JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="bg-slate-900 shadow-lg sticky top-0 z-40 border-b-4 border-teal-500">
+        <div class="max-w-[95rem] mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                    <h1 class="text-xl sm:text-2xl font-black text-white tracking-tight">📊 Plataforma Integral de Avalúos</h1>
+                    <div class="flex items-center gap-3 mt-1">
+                        <p class="text-sm text-slate-400 font-medium">Análisis de Suelo Neto, Inmuebles Totales y Mejoras (Corredor Occidente)</p>
+                        <!-- Indicador de sincronización -->
+                        <div id="sync-indicator" class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide">
+                            <span id="sync-dot" class="w-2 h-2 rounded-full bg-slate-500"></span>
+                            <span id="sync-label" class="text-slate-500">Sin conectar</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button onclick="loadFromSheets()" id="btn-reload" title="Recargar desde Google Sheets"
+                        class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-2 border border-slate-600">
+                        🔄 Sincronizar
+                    </button>
+                    <button onclick="openConfig()" 
+                        class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-2 border border-slate-600">
+                        ⚙️ Google Sheets
+                    </button>
+                    <button onclick="openModal('add')" class="bg-teal-500 hover:bg-teal-400 text-slate-900 px-6 py-2.5 rounded-lg text-sm font-black shadow-sm transition-colors flex items-center gap-2">
+                        ➕ Registrar Oferta
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-[95rem] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        
+        <!-- Navegación por Pestañas -->
+        <div class="mb-6 overflow-x-auto no-scrollbar bg-slate-200/70 rounded-t-xl px-2 pt-2 flex shadow-inner">
+            <nav class="flex space-x-2 min-w-max" id="tabs-container">
+                <button onclick="changeSector('villa_pilar')" id="tab-villa_pilar" class="tab-btn tab-active whitespace-nowrap py-3 px-6 rounded-t-lg text-sm font-bold text-slate-600 hover:text-slate-800 hover:bg-white/50 transition-all">
+                    🏘️ Villa Pilar
+                </button>
+                <button onclick="changeSector('veracruz')" id="tab-veracruz" class="tab-btn whitespace-nowrap py-3 px-6 rounded-t-lg text-sm font-bold text-slate-600 hover:text-slate-800 hover:bg-white/50 transition-all">
+                    🏗️ Veracruz
+                </button>
+                <button onclick="changeSector('enlace')" id="tab-enlace" class="tab-btn whitespace-nowrap py-3 px-6 rounded-t-lg text-sm font-bold text-slate-600 hover:text-slate-800 hover:bg-white/50 transition-all">
+                    🚗 Sector Enlace
+                </button>
+                <button onclick="changeSector('la_linda')" id="tab-la_linda" class="tab-btn whitespace-nowrap py-3 px-6 rounded-t-lg text-sm font-bold text-slate-600 hover:text-slate-800 hover:bg-white/50 transition-all">
+                    🌿 La Linda
+                </button>
+            </nav>
+        </div>
+
+        <div class="grid grid-cols-1 xl:grid-cols-4 gap-6">
+            
+            <!-- Columna Izquierda: KPIs -->
+            <div class="xl:col-span-1 space-y-6">
+                
+                <!-- SECCIÓN 1: SUELO NETO -->
+                <div class="bg-teal-900 rounded-xl shadow-md p-5 text-white relative overflow-hidden">
+                    <div class="absolute top-0 right-0 w-24 h-24 bg-teal-800 rounded-full -mr-10 -mt-10 opacity-50"></div>
+                    <h3 class="text-xs font-black mb-4 uppercase tracking-widest text-teal-200 relative z-10">🌍 Análisis de Suelo Neto</h3>
+                    
+                    <div class="text-center mb-5 relative z-10">
+                        <p class="text-[10px] text-teal-300 font-bold uppercase mb-1">Valor Adopción (Prom. Ajustado m²)</p>
+                        <p class="text-3xl font-black text-white" id="range-avg">...</p>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-3 relative z-10 border-t border-teal-700/50 pt-4">
+                        <div class="bg-teal-800/50 rounded-lg p-2 text-center border border-teal-700">
+                            <p class="text-[9px] text-teal-300 font-bold uppercase">Mínimo Saneado</p>
+                            <p class="text-sm font-bold" id="range-min">...</p>
+                        </div>
+                        <div class="bg-teal-800/50 rounded-lg p-2 text-center border border-teal-700">
+                            <p class="text-[9px] text-teal-300 font-bold uppercase">Máximo Saneado</p>
+                            <p class="text-sm font-bold" id="range-max">...</p>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 flex justify-between items-center bg-teal-950/40 p-2 rounded-lg relative z-10">
+                        <div>
+                            <p class="text-[9px] text-teal-400 font-bold uppercase">Dispersión (CV)</p>
+                            <p class="text-sm font-black text-white" id="kpi-cov">...</p>
+                        </div>
+                        <span id="kpi-cov-eval" class="px-2 py-1 rounded text-[9px] font-black uppercase"></span>
+                    </div>
+                </div>
+
+                <!-- SECCIÓN 2: INMUEBLES Y CONSTRUCCIONES -->
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="bg-indigo-50 border-b border-indigo-100 px-4 py-3">
+                        <h3 class="text-xs font-black uppercase tracking-widest text-indigo-900">🏗️ Análisis Integral (Inmueble + Mejoras)</h3>
+                    </div>
+                    <div class="p-4 space-y-4">
+                        <div>
+                            <p class="text-[10px] text-slate-500 font-bold uppercase">Promedio Total por Unidad (Propiedad)</p>
+                            <p class="text-xl font-black text-slate-800" id="kpi-total-unit">...</p>
+                            <p class="text-[10px] text-slate-400 font-medium">Precio final promedio de venta en el sector</p>
+                        </div>
+                        <div class="border-t border-slate-100"></div>
+                        <div>
+                            <p class="text-[10px] text-slate-500 font-bold uppercase">Promedio Bruto Total / m²</p>
+                            <p class="text-lg font-black text-indigo-700" id="kpi-total-m2">...</p>
+                            <p class="text-[10px] text-slate-400 font-medium">Precio Total Oferta ÷ Área Total (Sin descontar mejoras)</p>
+                        </div>
+                        <div class="border-t border-slate-100"></div>
+                        <div class="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                            <p class="text-[10px] text-slate-600 font-bold uppercase">🏟️ Valor Promedio Construcciones</p>
+                            <p class="text-lg font-black text-slate-800" id="kpi-const-val">...</p>
+                            <p class="text-[9px] text-slate-500 font-bold mt-1" id="kpi-const-count">Calculado sobre 0 predios edificados</p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Columna Derecha -->
+            <div class="xl:col-span-3 space-y-6">
+                
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Mapa Interactivo -->
+                    <div class="bg-white rounded-xl shadow-sm p-4 border border-slate-200 flex flex-col">
+                        <div class="flex flex-wrap justify-between items-center mb-3 gap-2">
+                            <h3 class="text-sm font-black text-slate-800">🗺️ Cartografía de Valores</h3>
+                            <div class="flex flex-wrap gap-2 text-[9px] font-bold bg-slate-50 p-1.5 rounded border border-slate-100 uppercase">
+                                <span class="flex items-center"><span class="w-3 h-3 rounded-full bg-[#0f766e] mr-1"></span> Lote Vacío</span>
+                                <span class="flex items-center"><span class="w-3 h-3 rounded-full bg-[#4338ca] mr-1"></span> Edificado</span>
+                                <span class="flex items-center"><span class="w-3 h-3 rounded-full bg-[#e11d48] mr-1"></span> Atípico</span>
+                            </div>
+                        </div>
+                        <div id="map" class="w-full flex-grow min-h-[250px] rounded-lg border border-slate-300 z-0 relative"></div>
+                    </div>
+
+                    <!-- Gráficos -->
+                    <div class="grid grid-rows-2 gap-4">
+                        <div class="bg-white rounded-xl shadow-sm p-4 border border-slate-200">
+                            <h3 class="text-xs font-black text-slate-700 mb-2 uppercase tracking-wide">Dispersión Valor Suelo vs Área</h3>
+                            <div class="chart-container"><canvas id="scatterChart"></canvas></div>
+                        </div>
+                        <div class="bg-white rounded-xl shadow-sm p-4 border border-slate-200">
+                            <h3 class="text-xs font-black text-slate-700 mb-2 uppercase tracking-wide">Saneamiento de Muestra (Suelo Neto)</h3>
+                            <div class="chart-container"><canvas id="barChart"></canvas></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tabla de Datos CRUD -->
+                <div class="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200">
+                    <div class="px-4 py-3 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                        <h3 class="text-sm font-black text-slate-800">Base de Datos: Homogeneización de Muestra</h3>
+                        <span class="text-xs font-bold px-2.5 py-1 rounded bg-rose-100 text-rose-800 hidden uppercase" id="outlier-badge"></span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-slate-200 text-xs text-left">
+                            <thead class="bg-slate-100 text-slate-600 uppercase font-bold text-[10px]">
+                                <tr>
+                                    <th class="px-3 py-3">ID / Clase</th>
+                                    <th class="px-3 py-3 text-right">Área (m²)</th>
+                                    <th class="px-3 py-3 text-right text-slate-900">Precio Total (Unidad)</th>
+                                    <th class="px-3 py-3 text-right text-indigo-700">Total / m²</th>
+                                    <th class="px-3 py-3 text-right bg-indigo-50/50 text-indigo-800">(-) Vr. Construcción</th>
+                                    <th class="px-3 py-3 text-right font-black text-teal-800 bg-teal-50/50">(=) Suelo Neto / m²</th>
+                                    <th class="px-3 py-3 text-center">Estado Estadístico</th>
+                                    <th class="px-3 py-3 text-center">Gestión</th>
+                                </tr>
+                            </thead>
+                            <tbody id="data-table-body" class="bg-white divide-y divide-slate-100">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <!-- MODAL CRUD -->
+    <div id="crudModal" class="fixed inset-0 bg-slate-900/80 z-50 hidden flex items-center justify-center backdrop-blur-sm p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[95vh]">
+            
+            <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                <h3 class="text-lg font-black text-slate-800" id="modalTitle">Registrar Oferta Inmobiliaria</h3>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-rose-600 text-xl font-bold transition-colors">&times;</button>
+            </div>
+            
+            <div class="p-6 overflow-y-auto bg-white">
+                <form id="propertyForm" onsubmit="saveProperty(event)" class="space-y-5">
+                    <input type="hidden" id="editOriginalId" value="">
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">Sector Base</label>
+                            <select id="formSector" required class="w-full rounded border border-slate-300 p-2 text-xs focus:ring-2 focus:ring-teal-500">
+                                <option value="villa_pilar">Villa Pilar</option>
+                                <option value="veracruz">Veracruz</option>
+                                <option value="enlace">Sector Enlace</option>
+                                <option value="la_linda">La Linda</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">Clasificación Suelo (POT)</label>
+                            <select id="formSoilClass" required class="w-full rounded border border-slate-300 p-2 text-xs focus:ring-2 focus:ring-teal-500">
+                                <option value="urbano">Urbano Consolidado</option>
+                                <option value="expansion">Suelo de Expansión</option>
+                                <option value="suburbano">Rural Suburbano</option>
+                                <option value="rural">Rural Agrícola/Protección</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">ID Predio</label>
+                            <input type="text" id="formId" required placeholder="Ej: VP-10" class="w-full rounded border border-slate-300 p-2 text-xs focus:ring-2 focus:ring-teal-500">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Área Total del Lote (m²)</label>
+                                <input type="number" id="formArea" step="any" min="1" required class="w-full rounded border border-slate-300 p-2 text-sm focus:ring-2 focus:ring-teal-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Precio Total Oferta (Inmueble Completo)</label>
+                                <input type="number" id="formPrice" step="1000" min="10000" required class="w-full rounded border border-slate-300 p-2 text-sm focus:ring-2 focus:ring-teal-500">
+                            </div>
+                        </div>
+
+                        <div class="space-y-4 bg-indigo-50/50 p-4 rounded-lg border border-indigo-100">
+                            <div>
+                                <label class="block text-xs font-bold text-indigo-900 mb-1">Estado Físico del Predio</label>
+                                <select id="formBuildState" required onchange="toggleConstructionField()" class="w-full rounded border border-indigo-200 p-2 text-sm focus:ring-2 focus:ring-indigo-500 font-bold text-indigo-700">
+                                    <option value="vacio">Lote Vacío / Sin Construir</option>
+                                    <option value="edificado">Predio Edificado (Casa/Bodega)</option>
+                                </select>
+                            </div>
+                            
+                            <div id="constructionValueContainer" class="hidden">
+                                <label class="block text-xs font-bold text-indigo-900 mb-1">Valor Estimado Construcción (COP)</label>
+                                <p class="text-[9px] text-indigo-600 mb-1 leading-tight font-medium">Método Residual: Se restará del precio total para hallar el valor real del suelo.</p>
+                                <input type="number" id="formConstructionValue" step="1000" min="0" value="0" class="w-full rounded border border-indigo-300 p-2 text-sm focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">Latitud</label>
+                            <input type="number" id="formLat" step="any" required placeholder="5.0595" class="w-full rounded border border-slate-300 p-2 text-xs focus:ring-2 focus:ring-teal-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">Longitud</label>
+                            <input type="number" id="formLng" step="any" required placeholder="-75.5280" class="w-full rounded border border-slate-300 p-2 text-xs focus:ring-2 focus:ring-teal-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">Enlace (URL Fuente)</label>
+                            <input type="url" id="formSource" placeholder="https://..." class="w-full rounded border border-slate-300 p-2 text-xs focus:ring-2 focus:ring-teal-500">
+                        </div>
+                    </div>
+
+                    <div class="mt-6 flex justify-end gap-3 pt-4 border-t border-slate-200">
+                        <button type="button" onclick="closeModal()" class="px-5 py-2.5 text-sm font-bold text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50">Cancelar</button>
+                        <button type="submit" id="submitBtn" class="px-5 py-2.5 text-sm font-black text-white bg-teal-600 rounded-lg hover:bg-teal-700 shadow-md flex items-center gap-2">
+                            💾 Guardar en Base de Datos
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // =============================================
+        // BASE DE DATOS LOCAL (fallback / demo)
+        // =============================================
+        const DEFAULT_DATA = {
+            'villa_pilar': { name: 'Villa Pilar', samples: [
+                { id: 'VP-L01', soilClass: 'urbano', buildState: 'vacio', area: 160, price: 175000000, constructionValue: 0, lat: 5.0595, lng: -75.5280, sourceUrl: 'https://www.fincaraiz.com.co' },
+                { id: 'VP-C02', soilClass: 'urbano', buildState: 'edificado', area: 210, price: 350000000, constructionValue: 110000000, lat: 5.0590, lng: -75.5285, sourceUrl: 'https://www.ciencuadras.com' },
+                { id: 'VP-L03', soilClass: 'urbano', buildState: 'vacio', area: 185, price: 195000000, constructionValue: 0, lat: 5.0600, lng: -75.5275, sourceUrl: 'https://www.metrocuadrado.com' },
+                { id: 'VP-C04', soilClass: 'urbano', buildState: 'edificado', area: 110, price: 280000000, constructionValue: 104000000, lat: 5.0585, lng: -75.5290, sourceUrl: '' },
+                { id: 'VP-L08', soilClass: 'urbano', buildState: 'vacio', area: 200, price: 700000000, constructionValue: 0, lat: 5.0598, lng: -75.5265, sourceUrl: '' },
+                { id: 'VP-L09', soilClass: 'urbano', buildState: 'vacio', area: 140, price: 80000000, constructionValue: 0, lat: 5.0575, lng: -75.5300, sourceUrl: '' }
+            ]},
+            'veracruz': { name: 'Veracruz', samples: [
+                { id: 'VC-L01', soilClass: 'urbano', buildState: 'vacio', area: 350, price: 320000000, constructionValue: 0, lat: 5.0565, lng: -75.5315, sourceUrl: '' },
+                { id: 'VC-C02', soilClass: 'urbano', buildState: 'edificado', area: 500, price: 650000000, constructionValue: 250000000, lat: 5.0560, lng: -75.5320, sourceUrl: '' },
+                { id: 'VC-L03', soilClass: 'urbano', buildState: 'vacio', area: 420, price: 360000000, constructionValue: 0, lat: 5.0570, lng: -75.5310, sourceUrl: '' },
+                { id: 'VC-L08', soilClass: 'urbano', buildState: 'vacio', area: 150, price: 300000000, constructionValue: 0, lat: 5.0575, lng: -75.5302, sourceUrl: '' }
+            ]},
+            'enlace': { name: 'Sector de Enlace', samples: [
+                { id: 'EN-L01', soilClass: 'expansion', buildState: 'vacio', area: 1200, price: 550000000, constructionValue: 0, lat: 5.0545, lng: -75.5350, sourceUrl: '' },
+                { id: 'EN-C02', soilClass: 'suburbano', buildState: 'edificado', area: 2500, price: 1200000000, constructionValue: 400000000, lat: 5.0535, lng: -75.5370, sourceUrl: '' },
+                { id: 'EN-L03', soilClass: 'expansion', buildState: 'vacio', area: 1050, price: 480000000, constructionValue: 0, lat: 5.0550, lng: -75.5340, sourceUrl: '' }
+            ]},
+            'la_linda': { name: 'La Linda', samples: [
+                { id: 'LL-L01', soilClass: 'rural', buildState: 'vacio', area: 3500, price: 650000000, constructionValue: 0, lat: 5.0520, lng: -75.5430, sourceUrl: '' },
+                { id: 'LL-C02', soilClass: 'rural', buildState: 'edificado', area: 5000, price: 1500000000, constructionValue: 650000000, lat: 5.0510, lng: -75.5450, sourceUrl: '' },
+                { id: 'LL-L03', soilClass: 'suburbano', buildState: 'vacio', area: 2800, price: 520000000, constructionValue: 0, lat: 5.0525, lng: -75.5420, sourceUrl: '' },
+                { id: 'LL-C08', soilClass: 'suburbano', buildState: 'edificado', area: 1500, price: 2000000000, constructionValue: 800000000, lat: 5.0535, lng: -75.5415, sourceUrl: '' }
+            ]}
+        };
+
+        // =============================================
+        // ESTADO GLOBAL
+        // =============================================
+        let marketData = JSON.parse(JSON.stringify(DEFAULT_DATA));
+        let currentSectorId = 'villa_pilar';
+        let scatterChartInstance = null;
+        let barChartInstance = null;
+        let leafletMap = null;
+        let markersGroup = null;
+        let isEditing = false;
+        let isConnected = false;
+
+        // =============================================
+        // CONFIG GOOGLE SHEETS
+        // =============================================
+        let sheetsConfig = {
+            webAppUrl: localStorage.getItem('avaluos_webAppUrl') || ''
+        };
+
+        function openConfig() {
+            document.getElementById('config-webapp-url').value = sheetsConfig.webAppUrl;
+            document.getElementById('config-panel').classList.add('open');
+            document.getElementById('config-overlay').classList.add('open');
+        }
+
+        function closeConfig() {
+            document.getElementById('config-panel').classList.remove('open');
+            document.getElementById('config-overlay').classList.remove('open');
+        }
+
+        function saveConfig() {
+            sheetsConfig.webAppUrl = document.getElementById('config-webapp-url').value.trim();
+            localStorage.setItem('avaluos_webAppUrl', sheetsConfig.webAppUrl);
+            showToast('✅', 'Configuración guardada');
+            if (sheetsConfig.webAppUrl) { loadFromSheets(); closeConfig(); }
+        }
+
+        function copyScript() {
+            const code = document.getElementById('apps-script-code').textContent;
+            navigator.clipboard.writeText(code).then(() => showToast('📋', 'Script copiado al portapapeles'));
+        }
+
+        function setSyncStatus(state) {
+            const dot = document.getElementById('sync-dot');
+            const label = document.getElementById('sync-label');
+            if (state === 'connected') {
+                dot.className = 'w-2 h-2 rounded-full bg-teal-400';
+                dot.classList.remove('pulse-dot');
+                label.textContent = 'Conectado a Sheets';
+                label.className = 'text-teal-400';
+                isConnected = true;
+            } else if (state === 'syncing') {
+                dot.className = 'w-2 h-2 rounded-full bg-amber-400 pulse-dot';
+                label.textContent = 'Sincronizando...';
+                label.className = 'text-amber-400';
+            } else if (state === 'error') {
+                dot.className = 'w-2 h-2 rounded-full bg-rose-500';
+                dot.classList.remove('pulse-dot');
+                label.textContent = 'Error de conexión';
+                label.className = 'text-rose-400';
+                isConnected = false;
+            } else {
+                dot.className = 'w-2 h-2 rounded-full bg-slate-500';
+                dot.classList.remove('pulse-dot');
+                label.textContent = 'Sin conectar';
+                label.className = 'text-slate-500';
+                isConnected = false;
+            }
+        }
+
+        // =============================================
+        // API DE GOOGLE SHEETS (GET & POST)
+        // =============================================
+        async function sheetsGET(params = {}) {
+            if (!sheetsConfig.webAppUrl) throw new Error('URL no configurada');
+            const url = new URL(sheetsConfig.webAppUrl);
+            Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+            const res = await fetch(url.toString(), { method: 'GET' });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            return data;
+        }
+
+        async function sheetsPOST(payload) {
+            if (!sheetsConfig.webAppUrl) throw new Error('URL no configurada');
+            const res = await fetch(sheetsConfig.webAppUrl, {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            return data;
+        }
+
+        // =============================================
+        // CARGAR DATOS DESDE SHEETS
+        // =============================================
+        async function loadFromSheets() {
+            if (!sheetsConfig.webAppUrl) {
+                showToast('⚙️', 'Configura Google Sheets primero');
+                openConfig();
+                return;
+            }
+
+            setSyncStatus('syncing');
+            const btn = document.getElementById('btn-reload');
+            btn.innerHTML = '<span class="spinner"></span> Cargando...';
+            btn.disabled = true;
+
+            try {
+                const result = await sheetsGET({ action: 'getAll' });
+                const records = result.records || [];
+
+                if (records.length === 0) {
+                    setSyncStatus('connected');
+                    showToast('📭', 'Hoja vacía — usando datos de ejemplo');
+                    marketData = JSON.parse(JSON.stringify(DEFAULT_DATA));
+                } else {
+                    // Reconstruir marketData desde los registros planos
+                    const fresh = {
+                        villa_pilar: { name: 'Villa Pilar', samples: [] },
+                        veracruz: { name: 'Veracruz', samples: [] },
+                        enlace: { name: 'Sector de Enlace', samples: [] },
+                        la_linda: { name: 'La Linda', samples: [] }
+                    };
+                    records.forEach(r => {
+                        const sector = r.sector;
+                        if (fresh[sector]) {
+                            fresh[sector].samples.push({
+                                id: String(r.id),
+                                sector: r.sector,
+                                soilClass: r.soilClass,
+                                buildState: r.buildState,
+                                area: parseFloat(r.area) || 0,
+                                price: parseFloat(r.price) || 0,
+                                constructionValue: parseFloat(r.constructionValue) || 0,
+                                lat: parseFloat(r.lat) || 0,
+                                lng: parseFloat(r.lng) || 0,
+                                sourceUrl: r.sourceUrl || ''
+                            });
+                        }
+                    });
+                    marketData = fresh;
+                    setSyncStatus('connected');
+                    showToast('✅', `${records.length} registros cargados`);
+                }
+
+                renderDashboard();
+                updateConnectionStatus('success', `${records.length} registros cargados`);
+
+            } catch (err) {
+                setSyncStatus('error');
+                showToast('❌', 'Error: ' + err.message);
+                updateConnectionStatus('error', err.message);
+            } finally {
+                btn.innerHTML = '🔄 Sincronizar';
+                btn.disabled = false;
+            }
+        }
+
+        function updateConnectionStatus(type, msg) {
+            const el = document.getElementById('connection-status');
+            el.classList.remove('hidden');
+            if (type === 'success') {
+                el.innerHTML = `<div class="bg-teal-50 border border-teal-200 rounded-lg p-3 text-xs text-teal-800 font-bold">✅ ${msg}</div>`;
+            } else {
+                el.innerHTML = `<div class="bg-rose-50 border border-rose-200 rounded-lg p-3 text-xs text-rose-800 font-bold">❌ Error: ${msg}</div>`;
+            }
+        }
+
+        async function testConnection() {
+            const url = document.getElementById('config-webapp-url').value.trim();
+            if (!url) { showToast('⚠️', 'Ingresa la URL primero'); return; }
+            sheetsConfig.webAppUrl = url;
+            updateConnectionStatus('loading', '');
+            document.getElementById('connection-status').innerHTML = `<div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 font-bold">⏳ Probando conexión...</div>`;
+            document.getElementById('connection-status').classList.remove('hidden');
+            try {
+                const result = await sheetsGET({ action: 'getAll' });
+                updateConnectionStatus('success', `Conexión exitosa. ${result.records?.length || 0} registros encontrados.`);
+            } catch (err) {
+                updateConnectionStatus('error', err.message);
+            }
+        }
+
+        async function seedDatabase() {
+            if (!sheetsConfig.webAppUrl) { showToast('⚙️', 'Configura la URL primero'); return; }
+            if (!confirm('¿Poblar la hoja con los datos de ejemplo? Esto reemplazará el contenido actual.')) return;
+
+            const allRecords = [];
+            Object.entries(DEFAULT_DATA).forEach(([sectorKey, sectorData]) => {
+                sectorData.samples.forEach(s => allRecords.push({ ...s, sector: sectorKey }));
+            });
+
+            try {
+                setSyncStatus('syncing');
+                await sheetsPOST({ action: 'seed', records: allRecords });
+                showToast('🌱', `${allRecords.length} registros sembrados`);
+                await loadFromSheets();
+            } catch (err) {
+                setSyncStatus('error');
+                showToast('❌', err.message);
+            }
+        }
+
+        // =============================================
+        // TOAST
+        // =============================================
+        let toastTimer = null;
+        function showToast(icon, msg) {
+            document.getElementById('toast-icon').textContent = icon;
+            document.getElementById('toast-msg').textContent = msg;
+            const el = document.getElementById('toast');
+            el.classList.add('show');
+            if (toastTimer) clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+        }
+
+        // =============================================
+        // MAPAS LEAFLET
+        // =============================================
+        function initMap() {
+            leafletMap = L.map('map').setView([5.056, -75.535], 14);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                maxZoom: 19
+            }).addTo(leafletMap);
+            markersGroup = L.layerGroup().addTo(leafletMap);
+        }
+
+        function renderMapMarkers(analyzedData) {
+            markersGroup.clearLayers();
+            if (analyzedData.length === 0) return;
+            let bounds = L.latLngBounds();
+            analyzedData.forEach(point => {
+                let baseColor = point.buildState === 'edificado' ? '#4338ca' : '#0f766e';
+                let fillColor = point.buildState === 'edificado' ? '#6366f1' : '#14b8a6';
+                if (point.isOutlier) { baseColor = '#e11d48'; fillColor = '#f43f5e'; }
+                const marker = L.circleMarker([point.lat, point.lng], {
+                    radius: point.isOutlier ? 10 : 8,
+                    fillColor, color: '#ffffff', weight: 2, opacity: 1, fillOpacity: 0.95
+                });
+                const popupContent = `
+                    <div class="min-w-[180px]">
+                        <div class="flex justify-between items-center border-b pb-1 mb-2">
+                            <h4 class="font-black text-slate-800">${point.id}</h4>
+                            <span class="text-[9px] uppercase font-bold text-slate-500">${point.soilClass}</span>
+                        </div>
+                        <p class="text-[10px] text-slate-500 font-bold uppercase mb-0.5">Área Lote</p>
+                        <p class="text-sm font-black text-slate-800 mb-2">${formatNumber(point.area)} m²</p>
+                        <p class="text-[10px] text-slate-500 font-bold uppercase mb-0.5">Precio Total Oferta</p>
+                        <p class="text-sm font-black text-indigo-700 mb-1">${formatCurrency(point.price)}</p>
+                        ${point.buildState === 'edificado' ? `<p class="text-[10px] text-slate-500 font-bold uppercase mb-0.5">(-) Vr. Mejoras (Residual)</p><p class="text-sm font-black text-slate-600 mb-2">${formatCurrency(point.constructionValue)}</p>` : ''}
+                        <div class="mt-3 p-2 rounded bg-teal-50 text-center border border-teal-100">
+                            <p class="text-[10px] text-teal-800 uppercase font-black">Vr. Suelo Neto / m²</p>
+                            <p class="text-base ${point.isOutlier ? 'text-rose-600' : 'text-teal-700'} font-black">${formatCurrency(point.pricePerM2)}</p>
+                        </div>
+                        ${point.isOutlier ? `<div class="mt-2 text-[10px] bg-rose-100 text-rose-800 px-2 py-1 rounded font-bold text-center border border-rose-200 uppercase">⚠️ Atípico ${point.outlierType}</div>` : ''}
+                    </div>
+                `;
+                marker.bindPopup(popupContent);
+                marker.addTo(markersGroup);
+                bounds.extend([point.lat, point.lng]);
+            });
+            if (bounds.isValid()) { leafletMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 }); }
+        }
+
+        // =============================================
+        // ESTADÍSTICAS
+        // =============================================
+        function calculateSectorStats(samples) {
+            if (samples.length === 0) {
+                return { analyzedData: [], avgM2: 0, stdDev: 0, cov: 0, outliers: [], adjustedAvgM2: 0, adjustedMin: 0, adjustedMax: 0, avgTotalUnit: 0, avgTotalM2: 0, avgConstVal: 0, constCount: 0 };
+            }
+            const mean = arr => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+            const totalPrices = samples.map(s => s.price);
+            const avgTotalUnit = mean(totalPrices);
+            const totalM2Prices = samples.map(s => s.price / s.area);
+            const avgTotalM2 = mean(totalM2Prices);
+            const builtSamples = samples.filter(s => s.buildState === 'edificado');
+            const constCount = builtSamples.length;
+            const avgConstVal = mean(builtSamples.map(s => s.constructionValue));
+            const data = samples.map(s => {
+                const constrVal = s.buildState === 'edificado' ? (s.constructionValue || 0) : 0;
+                const landValue = s.price - constrVal;
+                const pricePerM2 = landValue / s.area;
+                const totalPerM2 = s.price / s.area;
+                return { ...s, landValue, pricePerM2, totalPerM2 };
+            });
+            const pricesM2 = data.map(d => d.pricePerM2);
+            const avgM2 = mean(pricesM2);
+            let stdDev = 0, cov = 0;
+            if (pricesM2.length > 1) {
+                const variance = pricesM2.reduce((acc, val) => acc + Math.pow(val - avgM2, 2), 0) / (pricesM2.length - 1);
+                stdDev = Math.sqrt(variance);
+                cov = (stdDev / avgM2) * 100;
+            }
+            const sortedPrices = [...pricesM2].sort((a, b) => a - b);
+            const q1 = sortedPrices[Math.floor((sortedPrices.length / 4))];
+            const q3 = sortedPrices[Math.ceil((sortedPrices.length * (3 / 4))) - 1] || q1;
+            const iqr = q3 - q1;
+            const lowerBound = q1 - 1.5 * iqr;
+            const upperBound = q3 + 1.5 * iqr;
+            const analyzedData = data.map(d => ({
+                ...d,
+                isOutlier: (pricesM2.length > 3) && (d.pricePerM2 < lowerBound || d.pricePerM2 > upperBound),
+                outlierType: d.pricePerM2 < lowerBound ? 'Bajo' : (d.pricePerM2 > upperBound ? 'Alto' : 'Normal')
+            }));
+            const normalData = analyzedData.filter(d => !d.isOutlier);
+            const normalPricesM2 = normalData.map(d => d.pricePerM2);
+            const adjustedAvgM2 = normalPricesM2.length > 0 ? mean(normalPricesM2) : avgM2;
+            const adjustedMin = normalPricesM2.length > 0 ? Math.min(...normalPricesM2) : (pricesM2.length > 0 ? Math.min(...pricesM2) : 0);
+            const adjustedMax = normalPricesM2.length > 0 ? Math.max(...normalPricesM2) : (pricesM2.length > 0 ? Math.max(...pricesM2) : 0);
+            return { analyzedData, avgM2, stdDev, cov, outliers: analyzedData.filter(d => d.isOutlier), adjustedAvgM2, adjustedMin, adjustedMax, avgTotalUnit, avgTotalM2, avgConstVal, constCount };
+        }
+
+        const formatCurrency = (val) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(val || 0);
+        const formatNumber = (val) => new Intl.NumberFormat('es-CO', { maximumFractionDigits: 1 }).format(val || 0);
+
+        // =============================================
+        // RENDERIZADO
+        // =============================================
+        function changeSector(sectorId) {
+            currentSectorId = sectorId;
+            document.querySelectorAll('.tab-btn').forEach(btn => { btn.classList.remove('tab-active', 'text-teal-700'); btn.classList.add('bg-transparent'); });
+            document.getElementById(`tab-${sectorId}`).classList.add('tab-active', 'text-teal-700');
+            renderDashboard();
+        }
+
+        function renderDashboard() {
+            const sectorData = marketData[currentSectorId];
+            const stats = calculateSectorStats(sectorData.samples);
+            const covEl = document.getElementById('kpi-cov');
+            const covEvalEl = document.getElementById('kpi-cov-eval');
+            covEl.textContent = formatNumber(stats.cov) + '%';
+            if (stats.cov === 0) { covEvalEl.textContent = "Sin datos"; covEvalEl.className = "text-teal-200 bg-teal-800/50"; }
+            else if (stats.cov <= 15) { covEvalEl.textContent = "Homogéneo"; covEvalEl.className = "px-2 py-1 rounded text-[9px] font-black uppercase text-emerald-300 bg-emerald-900/50"; }
+            else if (stats.cov <= 30) { covEvalEl.textContent = "Aceptable"; covEvalEl.className = "px-2 py-1 rounded text-[9px] font-black uppercase text-amber-300 bg-amber-900/50"; }
+            else { covEvalEl.textContent = "Heterogéneo"; covEvalEl.className = "px-2 py-1 rounded text-[9px] font-black uppercase text-rose-300 bg-rose-900/50"; }
+            document.getElementById('range-min').textContent = formatCurrency(stats.adjustedMin);
+            document.getElementById('range-max').textContent = formatCurrency(stats.adjustedMax);
+            document.getElementById('range-avg').textContent = formatCurrency(stats.adjustedAvgM2);
+            document.getElementById('kpi-total-unit').textContent = formatCurrency(stats.avgTotalUnit);
+            document.getElementById('kpi-total-m2').textContent = formatCurrency(stats.avgTotalM2);
+            document.getElementById('kpi-const-val').textContent = stats.constCount > 0 ? formatCurrency(stats.avgConstVal) : 'N/A';
+            document.getElementById('kpi-const-count').textContent = `Calculado sobre ${stats.constCount} predio(s) edificado(s)`;
+            const badge = document.getElementById('outlier-badge');
+            if (stats.outliers.length > 0) { badge.classList.remove('hidden'); badge.textContent = `${stats.outliers.length} Atípico(s) (Suelo Neto)`; }
+            else { badge.classList.add('hidden'); }
+            updateTable(stats.analyzedData);
+            updateCharts(sectorData.name, stats);
+            if (leafletMap) { setTimeout(() => { leafletMap.invalidateSize(); renderMapMarkers(stats.analyzedData); }, 100); }
+        }
+
+        function updateTable(analyzedData) {
+            const tbody = document.getElementById('data-table-body');
+            tbody.innerHTML = '';
+            if (analyzedData.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" class="px-3 py-6 text-center text-slate-400 font-medium">Sin predios registrados en este sector.</td></tr>`;
+                return;
+            }
+            analyzedData.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.className = row.isOutlier ? "bg-rose-50/40" : "hover:bg-slate-50 transition-colors";
+                const classBadge = `<div class="text-[9px] uppercase font-bold text-slate-400">${row.soilClass}</div>`;
+                const buildBadge = row.buildState === 'edificado'
+                    ? `<span class="px-1.5 py-0.5 bg-indigo-100 text-indigo-800 rounded text-[9px] font-black uppercase">Edificado</span>`
+                    : `<span class="px-1.5 py-0.5 bg-teal-100 text-teal-800 rounded text-[9px] font-black uppercase">Vacío</span>`;
+                const statusBadge = row.isOutlier
+                    ? `<span class="px-2 py-1 rounded text-[9px] font-black uppercase bg-rose-100 text-rose-800">Atípico ${row.outlierType}</span>`
+                    : `<span class="px-2 py-1 rounded text-[9px] font-black uppercase bg-emerald-100 text-emerald-800">Normal</span>`;
+                tr.innerHTML = `
+                    <td class="px-3 py-2 whitespace-nowrap">
+                        <div class="font-black text-slate-800">${row.id} ${row.sourceUrl ? `<a href="${row.sourceUrl}" target="_blank" class="text-blue-500 hover:text-blue-700" title="Ver Fuente">🔗</a>` : ''}</div>
+                        ${classBadge} ${buildBadge}
+                    </td>
+                    <td class="px-3 py-2 whitespace-nowrap text-slate-600 text-right font-medium">${formatNumber(row.area)}</td>
+                    <td class="px-3 py-2 whitespace-nowrap text-slate-800 text-right font-black">${formatCurrency(row.price)}</td>
+                    <td class="px-3 py-2 whitespace-nowrap text-indigo-700 text-right font-black border-l border-slate-200">${formatCurrency(row.totalPerM2)}</td>
+                    <td class="px-3 py-2 whitespace-nowrap text-right ${row.buildState === 'edificado' ? 'text-indigo-600 font-bold bg-indigo-50/30' : 'text-slate-300 font-medium'}">${row.buildState === 'edificado' ? formatCurrency(row.constructionValue) : '-'}</td>
+                    <td class="px-3 py-2 whitespace-nowrap text-right text-teal-700 font-black bg-teal-50/30 text-[13px] border-x border-teal-100">${formatCurrency(row.pricePerM2)}</td>
+                    <td class="px-3 py-2 whitespace-nowrap text-center">${statusBadge}</td>
+                    <td class="px-3 py-2 whitespace-nowrap text-center">
+                        <button onclick="openModal('edit', '${row.id}')" class="text-slate-400 hover:text-teal-600 mx-1 transition-colors" title="Editar">✏️</button>
+                        <button onclick="deleteProperty('${row.id}')" class="text-slate-400 hover:text-rose-600 mx-1 transition-colors" title="Eliminar">🗑️</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function updateCharts(sectorName, stats) {
+            if (scatterChartInstance) scatterChartInstance.destroy();
+            if (barChartInstance) barChartInstance.destroy();
+            const scatterDataNormalVacio = stats.analyzedData.filter(d => !d.isOutlier && d.buildState === 'vacio').map(d => ({ x: d.area, y: d.pricePerM2, id: d.id }));
+            const scatterDataNormalEdif = stats.analyzedData.filter(d => !d.isOutlier && d.buildState === 'edificado').map(d => ({ x: d.area, y: d.pricePerM2, id: d.id }));
+            const scatterDataOutlier = stats.analyzedData.filter(d => d.isOutlier).map(d => ({ x: d.area, y: d.pricePerM2, id: d.id }));
+            const ctxScatter = document.getElementById('scatterChart').getContext('2d');
+            scatterChartInstance = new Chart(ctxScatter, {
+                type: 'scatter',
+                data: {
+                    datasets: [
+                        { label: 'Suelo Vacío', data: scatterDataNormalVacio, backgroundColor: '#0f766e', borderColor: '#0f766e', pointRadius: 5 },
+                        { label: 'Suelo Residual', data: scatterDataNormalEdif, backgroundColor: '#4338ca', borderColor: '#4338ca', pointStyle: 'rectRounded', pointRadius: 6 },
+                        { label: 'Atípico', data: scatterDataOutlier, backgroundColor: '#e11d48', borderColor: '#be123c', pointStyle: 'triangle', pointRadius: 6 }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 6, font: { size: 10, family: 'Inter' } } } }, scales: { x: { ticks: { font: { size: 10, family: 'Inter' } } }, y: { ticks: { callback: v => '$' + v / 1000 + 'k', font: { size: 10, family: 'Inter' } } } } }
+            });
+            const ctxBar = document.getElementById('barChart').getContext('2d');
+            barChartInstance = new Chart(ctxBar, {
+                type: 'bar',
+                data: {
+                    labels: ['Prom. Bruto', 'Prom. Ajustado (Saneado)'],
+                    datasets: [{ data: [stats.avgM2, stats.adjustedAvgM2], backgroundColor: ['#94a3b8', '#0f766e'], borderRadius: 4, barPercentage: 0.6 }]
+                },
+                options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { callback: v => '$' + v / 1000 + 'k', font: { size: 10, family: 'Inter' } } }, y: { ticks: { font: { size: 10, family: 'Inter', weight: 'bold' } } } } }
+            });
+        }
+
+        // =============================================
+        // CRUD CON INTEGRACIÓN A SHEETS
+        // =============================================
+        function toggleConstructionField() {
+            const state = document.getElementById('formBuildState').value;
+            const container = document.getElementById('constructionValueContainer');
+            if (state === 'edificado') {
+                container.classList.remove('hidden');
+                document.getElementById('formConstructionValue').required = true;
+            } else {
+                container.classList.add('hidden');
+                document.getElementById('formConstructionValue').required = false;
+                document.getElementById('formConstructionValue').value = 0;
+            }
+        }
+
+        function openModal(mode, propId = null) {
+            document.getElementById('propertyForm').reset();
+            isEditing = (mode === 'edit');
+            toggleConstructionField();
+            if (isEditing && propId) {
+                document.getElementById('modalTitle').textContent = 'Editar Oferta';
+                const property = marketData[currentSectorId].samples.find(p => p.id === propId);
+                if (property) {
+                    document.getElementById('formSector').value = currentSectorId;
+                    document.getElementById('formSoilClass').value = property.soilClass || 'urbano';
+                    document.getElementById('formId').value = property.id;
+                    document.getElementById('editOriginalId').value = property.id;
+                    document.getElementById('formArea').value = property.area;
+                    document.getElementById('formPrice').value = property.price;
+                    document.getElementById('formBuildState').value = property.buildState || 'vacio';
+                    toggleConstructionField();
+                    if (property.buildState === 'edificado') { document.getElementById('formConstructionValue').value = property.constructionValue; }
+                    document.getElementById('formLat').value = property.lat;
+                    document.getElementById('formLng').value = property.lng;
+                    document.getElementById('formSource').value = property.sourceUrl || '';
+                }
+            } else {
+                document.getElementById('modalTitle').textContent = 'Registrar Nueva Oferta';
+                document.getElementById('formSector').value = currentSectorId;
+                document.getElementById('editOriginalId').value = '';
+            }
+            document.getElementById('crudModal').classList.remove('hidden');
+        }
+
+        function closeModal() { document.getElementById('crudModal').classList.add('hidden'); }
+
+        async function saveProperty(e) {
+            e.preventDefault();
+            const sectorKey = document.getElementById('formSector').value;
+            const buildState = document.getElementById('formBuildState').value;
+            const newProperty = {
+                id: document.getElementById('formId').value.trim(),
+                sector: sectorKey,
+                soilClass: document.getElementById('formSoilClass').value,
+                buildState,
+                area: parseFloat(document.getElementById('formArea').value),
+                price: parseFloat(document.getElementById('formPrice').value),
+                constructionValue: buildState === 'edificado' ? parseFloat(document.getElementById('formConstructionValue').value) : 0,
+                lat: parseFloat(document.getElementById('formLat').value),
+                lng: parseFloat(document.getElementById('formLng').value),
+                sourceUrl: document.getElementById('formSource').value.trim()
+            };
+
+            const originalId = document.getElementById('editOriginalId').value;
+            const btn = document.getElementById('submitBtn');
+            btn.innerHTML = '<span class="spinner"></span> Guardando...';
+            btn.disabled = true;
+
+            // Actualizar datos locales
+            if (isEditing) {
+                const oldSamples = marketData[currentSectorId].samples;
+                const index = oldSamples.findIndex(p => p.id === originalId);
+                if (index > -1) oldSamples.splice(index, 1);
+                marketData[sectorKey].samples.push(newProperty);
+            } else {
+                if (marketData[sectorKey].samples.some(p => p.id === newProperty.id)) {
+                    alert('El ID ya existe. Use uno diferente.');
+                    btn.innerHTML = '💾 Guardar en Base de Datos';
+                    btn.disabled = false;
+                    return;
+                }
+                marketData[sectorKey].samples.push(newProperty);
+            }
+
+            // Sincronizar con Sheets si está conectado
+            if (sheetsConfig.webAppUrl) {
+                try {
+                    const action = isEditing ? 'update' : 'add';
+                    await sheetsPOST({ action, record: newProperty });
+                    showToast('✅', isEditing ? 'Registro actualizado en Sheets' : 'Registro guardado en Sheets');
+                    setSyncStatus('connected');
+                } catch (err) {
+                    showToast('⚠️', 'Guardado local. Falla Sheets: ' + err.message);
+                    setSyncStatus('error');
+                }
+            } else {
+                showToast('💾', 'Guardado localmente (sin Sheets)');
+            }
+
+            btn.innerHTML = '💾 Guardar en Base de Datos';
+            btn.disabled = false;
+            closeModal();
+            changeSector(sectorKey);
+        }
+
+        async function deleteProperty(propId) {
+            if (!confirm(`¿Eliminar definitivamente el predio ${propId}?`)) return;
+
+            const samples = marketData[currentSectorId].samples;
+            const index = samples.findIndex(p => p.id === propId);
+            if (index > -1) { samples.splice(index, 1); }
+
+            // Sincronizar eliminación con Sheets
+            if (sheetsConfig.webAppUrl) {
+                try {
+                    await sheetsPOST({ action: 'delete', id: propId });
+                    showToast('🗑️', `${propId} eliminado de Sheets`);
+                } catch (err) {
+                    showToast('⚠️', 'Eliminado local. Falla Sheets: ' + err.message);
+                }
+            } else {
+                showToast('🗑️', `${propId} eliminado localmente`);
+            }
+
+            renderDashboard();
+        }
+
+        // =============================================
+        // INICIALIZACIÓN
+        // =============================================
+        document.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            // Auto-cargar desde Sheets si hay URL guardada
+            if (sheetsConfig.webAppUrl) {
+                loadFromSheets();
+            } else {
+                changeSector('villa_pilar');
+            }
+        });
+    </script>
+</body>
+</html>
